@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Build binaries
+        run: |
+          mkdir -p build
+
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/viktor2api-windows-amd64.exe .
+          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o build/viktor2api-linux-amd64 .
+          GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o build/viktor2api-macos-amd64 .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o build/viktor2api-macos-arm64 .
+
+          cp config.yaml.example build/config.yaml.example
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*
+          generate_release_notes: true
+          body: |
+            ## Viktor2api
+
+            OpenAI-compatible proxy to Viktor AI agent for OpenCode.
+
+            ### Download
+
+            | OS | File |
+            |---|---|
+            | Windows (64-bit) | `viktor2api-windows-amd64.exe` |
+            | Linux (64-bit) | `viktor2api-linux-amd64` |
+            | macOS (Intel) | `viktor2api-macos-amd64` |
+            | macOS (Apple Silicon) | `viktor2api-macos-arm64` |
+
+            ### First run
+            1. Download binary + `config.yaml.example`
+            2. Rename `config.yaml.example` → `config.yaml`, fill in credentials
+            3. Run the binary
+
+            See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full setup.

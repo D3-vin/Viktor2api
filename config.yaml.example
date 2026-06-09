@@ -1,0 +1,66 @@
+# Viktor2api - Example Configuration
+# Copy this file to config.yaml and fill in your values.
+
+# ─────────────────────────────────────────
+# Proxy server
+# ─────────────────────────────────────────
+proxy:
+  port: 6061       # port the proxy listens on
+  api_key: ""      # optional Bearer token auth (empty = disabled)
+
+# ─────────────────────────────────────────
+# Viktor / Slack credentials
+# ─────────────────────────────────────────
+viktor:
+  # Required — get these from app.slack.com via the Chrome extension
+  slack_token: ""        # xoxc-... (from DevTools → Network → api requests → token field)
+  slack_cookie_d: ""     # xoxd-... (from DevTools → Application → Cookies → "d" on slack.com)
+  viktor_dm: ""          # D... (DM channel ID from Slack URL: /client/T.../D...)
+  viktor_user: ""        # U... (Viktor bot user ID: hover Viktor → profile → Copy member ID)
+
+  # Optional — Viktor API JWT
+  # Enables: reliable "done" detection via thread status + reasoning blocks streaming
+  # Get it from app.viktor.com via the Chrome extension (JWT tab)
+  # Expires ~14 days — re-read with the extension when it does
+  jwt: ""
+
+  # Polling & timeouts
+  poll_interval: 3        # seconds between Slack polls
+  response_quiet: 25      # seconds of silence before considering response complete
+  response_hard_cap: 900  # hard timeout in seconds (15 min)
+
+# ─────────────────────────────────────────
+# Git sync  (requires: git, gh CLI, gh auth login)
+# ─────────────────────────────────────────
+# How it works:
+#   1. Before each task: commit local changes → push to GitHub so Viktor sees them
+#   2. Viktor works in branch viktor/{session} and pushes his changes
+#   3. After response: git pull → Viktor's files appear on your disk
+#
+# Setup:
+#   winget install GitHub.cli
+#   gh auth login
+#   Then connect your GitHub account on app.viktor.com → Settings → Integrations → GitHub
+git:
+  enabled: false
+  github_owner: ""     # your GitHub username (auto-detected via gh CLI if empty)
+  local_repo_path: ""  # fallback project path if OpenCode doesn't send one
+
+# ─────────────────────────────────────────
+# Sessions & auto-compact
+# ─────────────────────────────────────────
+# Viktor holds full DM history as context. After max_turns turns it can get confused.
+# Auto-compact: ask Viktor for a handoff summary, then start a fresh session with it.
+sessions:
+  enabled: true
+  max_turns: 8           # turns before rotation (0 = disabled)
+  create_summary: true   # ask Viktor for handoff summary before rotation
+  state_file: ".sessions.json"
+
+# ─────────────────────────────────────────
+# Multi-account  (not yet implemented)
+# ─────────────────────────────────────────
+accounts:
+  enabled: false
+  file: "accounts.json"
+  min_credits: 500       # switch account when credits drop below this

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "viktor": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Viktor",
+      "options": {
+        "baseURL": "http://127.0.0.1:6061/v1",
+        "apiKey": "viktor"
+      },
+      "models": {
+        "viktor": {
+          "name": "Viktor"
+        }
+      }
+    }
+  }
+}
