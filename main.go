@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"viktor2api/internal/config"
 	"viktor2api/internal/server"
@@ -13,23 +18,25 @@ import (
 )
 
 func main() {
-	// Загрузка конфигурации
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
-		log.Fatalf("Не удалось загрузить конфиг: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Создание HTTP роутера
 	r := mux.NewRouter()
-
-	// Инициализация сервера
 	srv := server.New(cfg)
 
-	// OpenAI-совместимые эндпоинты
+	// OpenAI endpoints
 	r.HandleFunc("/v1/models", srv.HandleModels).Methods("GET")
 	r.HandleFunc("/v1/chat/completions", srv.HandleChatCompletions).Methods("POST")
 
-	// Config API (используется Chrome-расширением)
+	// Accounts API
+	r.HandleFunc("/api/accounts", srv.HandleAccountsList).Methods("GET")
+	r.HandleFunc("/api/accounts", srv.HandleAccountsUpsert).Methods("POST")
+	r.HandleFunc("/api/accounts/activate", srv.HandleAccountsActivate).Methods("POST")
+	r.HandleFunc("/api/accounts/remove", srv.HandleAccountsRemove).Methods("POST")
+
+	// Config API (Chrome extension)
 	r.HandleFunc("/api/config", srv.HandleGetConfig).Methods("GET")
 	r.HandleFunc("/api/config", srv.HandleUpdateConfig).Methods("POST", "PATCH")
 
@@ -37,19 +44,20 @@ func main() {
 	r.HandleFunc("/api/dashboard", srv.HandleDashboardAPI).Methods("GET")
 	r.HandleFunc("/api/dashboard/model", srv.HandleDashboardModel).Methods("GET")
 	r.HandleFunc("/api/dashboard/sessions", srv.HandleDashboardSessions).Methods("GET")
+	r.HandleFunc("/api/dashboard/credits", srv.HandleDashboardCredits).Methods("GET")
 	r.HandleFunc("/api/models/set", srv.HandleModelsSet).Methods("POST")
 
-	// Дашборд
+	// Dashboard UI
 	r.HandleFunc("/", srv.HandleDashboard).Methods("GET")
 	r.HandleFunc("/dashboard", srv.HandleDashboard).Methods("GET")
 
-	// Healthcheck
+	// Health
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "OK")
 	}).Methods("GET")
 
-	// CORS — только для Chrome-расширений (chrome-extension://)
+	// CORS for Chrome extensions only
 	c := cors.New(cors.Options{
 		AllowOriginFunc: func(origin string) bool {
 			return len(origin) > 17 && origin[:17] == "chrome-extension:"
@@ -66,12 +74,31 @@ func main() {
 	fmt.Println("  Telegram:  https://t.me/D3_vin")
 	fmt.Println("  Author:    @D3vin_dev")
 	fmt.Println()
-	log.Printf("Viktor2api started on http://%s", addr)
-	log.Printf("Dashboard:        http://%s/dashboard", addr)
-	log.Printf("OpenAI endpoint:  http://%s/v1", addr)
-	log.Printf("Config API:       http://%s/api/config", addr)
+	log.Printf("Started on http://%s", addr)
+	log.Printf("Dashboard: http://%s/dashboard", addr)
+	log.Printf("Endpoint:  http://%s/v1", addr)
+	log.Printf("Press Ctrl+C to stop")
 
-	if err := http.ListenAndServe(addr, c.Handler(r)); err != nil {
-		log.Fatalf("Server error: %v", err)
+	httpSrv := &http.Server{
+		Addr:    addr,
+		Handler: c.Handler(r),
 	}
+
+	// Catch Ctrl+C, SIGTERM, and console close (Windows)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	registerConsoleCloseHandler(quit)
+
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	<-quit
+	log.Printf("Shutting down...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	httpSrv.Shutdown(ctx)
+	log.Printf("Stopped.")
 }

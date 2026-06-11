@@ -215,19 +215,25 @@ async function clip(text) {
 }
 
 // ── Send to proxy API ──────────────────────────────────────────
+function acctName() {
+  return ($('acctNameInput').value || '').trim() || 'default';
+}
+
 async function sendToProxy(data) {
   const online = await checkProxy();
   if (!online) { setStatus('❌ Proxy is not running', 'err'); return false; }
+  // Always send to /api/accounts with account name — creates or updates
+  const payload = Object.assign({ name: acctName() }, data);
   try {
-    const r = await fetch(`${proxyBase()}/api/config`, {
+    const r = await fetch(`${proxyBase()}/api/accounts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(5000),
     });
     if (!r.ok) { const t = await r.text(); throw new Error(t); }
     const json = await r.json();
-    return json.updated || [];
+    return json.ok ? ['saved to account: ' + acctName()] : false;
   } catch (e) {
     setStatus(`❌ ${e.message}`, 'err'); return false;
   }
@@ -266,7 +272,7 @@ $('btnSendSlack').addEventListener('click', async () => {
     viktor_dm:      state.dm,
     viktor_user:    state.user,
   });
-  if (updated) setStatus(`✅ Saved: ${updated.join(', ')}`, 'ok');
+  if (updated) setStatus(`✅ Saved to account "${acctName()}"`, 'ok');
 });
 
 $('btnCopyJwt').addEventListener('click', async () => {
@@ -277,7 +283,7 @@ $('btnCopyJwt').addEventListener('click', async () => {
 $('btnSendJwt').addEventListener('click', async () => {
   setStatus('📤 Sending JWT…', 'run');
   const updated = await sendToProxy({ jwt: state.jwt });
-  if (updated) setStatus(`✅ Saved: ${updated.join(', ')}`, 'ok');
+  if (updated) setStatus(`✅ JWT saved to account "${acctName()}"`, 'ok');
 });
 
 // ── Init ───────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"viktor2api/internal/accounts"
 	"viktor2api/internal/config"
 	"viktor2api/internal/git"
 	"viktor2api/internal/sessions"
@@ -19,35 +20,47 @@ import (
 
 type Server struct {
 	config   *config.Config
+	accounts *accounts.Manager
 	slack    *slack.Client
 	sessions *sessions.Store
-	vapi     *viktorapi.Client // optional: Viktor API for reliable completion signal
+	vapi     *viktorapi.Client
 }
 
 func New(cfg *config.Config) *Server {
-	var slackClient *slack.Client
-	if cfg.Viktor.SlackToken != "" {
-		slackClient = slack.NewClient(
-			cfg.Viktor.SlackToken,
-			cfg.Viktor.SlackCookieD,
-			cfg.Viktor.ViktorDM,
-			cfg.Viktor.ViktorUser,
-		)
-	}
+	mgr := accounts.New(cfg.Accounts.File, cfg)
 
-	var vapi *viktorapi.Client
-	if cfg.Viktor.JWT != "" {
-		vapi = viktorapi.New(cfg.Viktor.JWT)
-		log.Printf("Viktor API: enabled (JWT configured)")
-	}
-
-	store := sessions.NewStore(cfg.Sessions.StateFile)
-
-	return &Server{
+	s := &Server{
 		config:   cfg,
-		slack:    slackClient,
-		sessions: store,
-		vapi:     vapi,
+		accounts: mgr,
+		sessions: sessions.NewStore(cfg.Sessions.StateFile),
+	}
+	s.reloadClients()
+	return s
+}
+
+// reloadClients rebuilds slack + vapi from the active account.
+func (s *Server) reloadClients() {
+	acct := s.accounts.Active()
+	if acct != nil && acct.SlackToken != "" {
+		s.slack = slack.NewClient(acct.SlackToken, acct.SlackCookieD, acct.ViktorDM, acct.ViktorUser)
+		if acct.JWT != "" {
+			s.vapi = viktorapi.New(acct.JWT)
+			log.Printf("Viktor API: enabled (account=%s)", acct.Name)
+		} else {
+			s.vapi = nil
+		}
+		log.Printf("Active account: %s", acct.Name)
+	} else if s.config.Viktor.SlackToken != "" {
+		// fallback to config.yaml
+		s.slack = slack.NewClient(
+			s.config.Viktor.SlackToken,
+			s.config.Viktor.SlackCookieD,
+			s.config.Viktor.ViktorDM,
+			s.config.Viktor.ViktorUser,
+		)
+		if s.config.Viktor.JWT != "" {
+			s.vapi = viktorapi.New(s.config.Viktor.JWT)
+		}
 	}
 }
 
@@ -673,21 +686,24 @@ func (s *Server) HandleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hot-reload slack client and vapi if credentials changed
-	if contains(updated, "slack_token") || contains(updated, "slack_cookie_d") ||
-		contains(updated, "viktor_dm") || contains(updated, "viktor_user") {
-		s.slack = slack.NewClient(
-			s.config.Viktor.SlackToken,
-			s.config.Viktor.SlackCookieD,
-			s.config.Viktor.ViktorDM,
-			s.config.Viktor.ViktorUser,
-		)
-		log.Printf("Slack client reloaded")
+	// Also update the active account in accounts manager
+	acctData := map[string]interface{}{}
+	for _, k := range updated {
+		switch k {
+		case "slack_token":    acctData["slack_token"]    = s.config.Viktor.SlackToken
+		case "slack_cookie_d": acctData["slack_cookie_d"] = s.config.Viktor.SlackCookieD
+		case "viktor_dm":      acctData["viktor_dm"]      = s.config.Viktor.ViktorDM
+		case "viktor_user":    acctData["viktor_user"]    = s.config.Viktor.ViktorUser
+		case "jwt":            acctData["jwt"]            = s.config.Viktor.JWT
+		}
 	}
-	if contains(updated, "jwt") && s.config.Viktor.JWT != "" {
-		s.vapi = viktorapi.New(s.config.Viktor.JWT)
-		log.Printf("Viktor API client reloaded")
+	if len(acctData) > 0 {
+		acctData["name"] = s.accounts.ActiveName()
+		s.accounts.Upsert(acctData)
 	}
+
+	// Hot-reload clients
+	s.reloadClients()
 
 	log.Printf("Config updated: %v", updated)
 	w.Header().Set("Content-Type", "application/json")
@@ -695,6 +711,61 @@ func (s *Server) HandleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"updated": updated,
 	})
+}
+
+// HandleAccountsList returns all accounts.
+func (s *Server) HandleAccountsList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"accounts": s.accounts.List(),
+		"active":   s.accounts.ActiveName(),
+	})
+}
+
+// HandleAccountsUpsert adds or updates an account.
+func (s *Server) HandleAccountsUpsert(w http.ResponseWriter, r *http.Request) {
+	var body map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := s.accounts.Upsert(body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// HandleAccountsActivate switches the active account.
+func (s *Server) HandleAccountsActivate(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Name string `json:"name"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	ok := s.accounts.SetActive(body.Name)
+	if !ok {
+		http.Error(w, "account not found", http.StatusNotFound)
+		return
+	}
+	s.reloadClients()
+	log.Printf("Switched to account: %s", body.Name)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "active": body.Name})
+}
+
+// HandleAccountsRemove deletes an account.
+func (s *Server) HandleAccountsRemove(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Name string `json:"name"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	ok := s.accounts.Remove(body.Name)
+	s.reloadClients()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": ok})
 }
 
 func contains(slice []string, s string) bool {

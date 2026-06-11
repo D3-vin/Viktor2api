@@ -3,6 +3,8 @@
 *.dll
 *.so
 *.dylib
+viktor2api
+viktor2api.exe
 
 # Build output
 build/

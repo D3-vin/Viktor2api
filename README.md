@@ -2,7 +2,7 @@
 
 OpenAI-compatible proxy to Viktor AI agent for use with OpenCode.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/D3-vin/Viktor2api/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/D3-vin/Viktor2api/releases)
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
