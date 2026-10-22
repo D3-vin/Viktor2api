@@ -207,8 +207,10 @@ Viktor2api/
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file
+MIT License — see [LICENSE](LICENSE) file
 
----
+## ⚠️ Disclaimer
 
-> **⚠️ Disclaimer**: This tool uses browser session tokens from Slack. Use at your own risk and in accordance with Slack's Terms of Service.
+This software is provided **for educational and interoperability purposes only**, "AS IS", without warranty of any kind. The tool uses browser session tokens from your own Slack/Viktor account — use at your own risk and in accordance with Slack's and Viktor's Terms of Service. The author is not responsible for any misuse or consequences. Not affiliated with Slack or Viktor.
+
+> ПО предоставляется исключительно в образовательных и ознакомительных целях, «как есть». Автор не несёт ответственности за использование.
